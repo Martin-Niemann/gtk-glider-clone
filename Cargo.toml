@@ -14,6 +14,11 @@ adw = { version = "0.6.0", package = "libadwaita", features = ["v1_4"] }
 gtk = { version = "0.8.0", package = "gtk4", features = ["v4_12"] }
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
+futures = "0.3.30"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.114"
+url = "=2.5.0"
+chrono = "0.4.35"
 
 [build-dependencies]
 glib-build-tools = "0.19.0"

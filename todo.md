@@ -1,0 +1,4 @@
+- [ ] Bring up GUI before fetching stories. Snappines is key.
+- [ ] Make a swipe-down reload feature, with a reload icon that drops down from the top of the screen and then speeeeeens for as long as it takes to recieve all responses.
+- [ ] Find out how the Dissent is able to push text all the way to the left in the headerbar, if it's even a conventional headerbar at all.
+- [ ] Run the app on Phosh and/or plasma-mobile. This will require renting an ARM VPS, as I cannot cross-compile, nor compile on the device itself.
