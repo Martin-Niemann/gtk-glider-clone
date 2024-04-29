@@ -1,11 +1,18 @@
+use std::sync::OnceLock;
+
 use adw::{
-    prelude::*, Application, ApplicationWindow, Bin, HeaderBar, NavigationPage, NavigationView, ToolbarView
+    prelude::*, Application, ApplicationWindow, Banner, Bin, HeaderBar, NavigationPage, NavigationView, ToolbarView
 };
 use chrono::{DateTime, Utc};
 use futures::{stream::iter, StreamExt};
-use gtk::{gio, Box, Image, Label, Orientation, ScrolledWindow, Widget};
+use gtk::{
+    gio,
+    glib::{self, clone},
+    Box, GestureDrag, Image, Label, Orientation, ScrolledWindow, Widget,
+};
 use reqwest::Client;
 use serde::Deserialize;
+use tokio::runtime::Runtime;
 use url::Url;
 
 #[derive(Clone)]
@@ -27,7 +34,7 @@ enum Type {
     pollopt,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize)]
 struct Item {
     id: u32,
     deleted: Option<bool>,
@@ -51,13 +58,12 @@ const ITEM_URL_TRAIL: &str = ".json";
 const TOP_STORIES_URL: &str = "https://hacker-news.firebaseio.com/v0/topstories.json";
 
 async fn fetch_stories(client: &Client) -> Result<Vec<Item>, String> {
-    let story_ids: Vec<u32>;
     let mut stories: Vec<Item> = vec![];
 
-    match fetch_ids(client).await {
-        Ok(s) => story_ids = s[..20].to_vec(),
+    let story_ids: Vec<u32> = match fetch_ids(client).await {
+        Ok(s) => s[..20].to_vec(),
         Err(e) => return Err(e.to_string()),
-    }
+    };
 
     let requests = iter(story_ids.clone())
         .map(|id| async move {
@@ -73,7 +79,9 @@ async fn fetch_stories(client: &Client) -> Result<Vec<Item>, String> {
 
     for response in responses {
         match response {
-            Ok(item) => stories.push(item),
+            Ok(item) => {
+                stories.push(item);
+            }
             Err(_e_) => (),
         }
     }
@@ -228,37 +236,62 @@ fn stories_to_card_data_transform(story_items: Vec<Item>) -> Vec<CardData> {
     cards
 }
 
-#[tokio::main]
-async fn main() {
+fn runtime() -> &'static Runtime {
+    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| Runtime::new().expect("Setting up tokio runtime needs to succeed."))
+}
+
+fn main() {
     gio::resources_register_include!("compiled.gresource").expect("Failed to register resources.");
-
-    let client = Client::new();
-
-    let stories_result = fetch_stories(&client).await;
-    let mut story_items: Vec<Item> = vec![];
-
-    match stories_result {
-        Ok(items) => story_items = items,
-        Err(e) => println!("{}", e),
-    }
-
-    let card_data_vec: Vec<CardData> = stories_to_card_data_transform(story_items);
-
-    if card_data_vec.is_empty() {
-        panic!("Failed to load any stories");
-    }
 
     let application = Application::builder()
         .application_id("com.example.FirstAdwaitaApp")
         .build();
 
     application.connect_activate(move |app| {
-        let header_bar: HeaderBar = HeaderBar::builder()
-            .decoration_layout("")
+        let (sender, receiver) = async_channel::bounded(1);
+
+        runtime().spawn(clone!(@strong sender => async move {
+            let client = Client::new();
+
+            let stories_result = fetch_stories(&client).await;
+            let mut story_items: Vec<Item> = vec![];
+
+            match stories_result {
+                Ok(items) => story_items = items,
+                Err(e) => println!("{}", e),
+                
+            }
+
+            let card_data_vec: Vec<CardData> = stories_to_card_data_transform(story_items);
+
+            if card_data_vec.is_empty() {
+                panic!("Failed to load any stories");
+            }
+
+            sender.send(card_data_vec).await.expect("The channel needs to be open.");
+        }));
+
+        let reload_banner: Banner = Banner::builder().button_label("").revealed(false).title("Reloading").build();
+
+        let reload_gesture: GestureDrag = GestureDrag::builder()
+            .button(0)
+            .n_points(1)
             .build();
+        reload_gesture.connect_drag_end(|gesture, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            println!("{}", gesture.offset().unwrap().1);
+            if gesture.offset().unwrap().1 > 70.0 {
+                println!("we dragged down!!");
+                //reload_banner.set_revealed(true);
+            }
+        });
+
+        let header_bar: HeaderBar = HeaderBar::builder().decoration_layout("").build();
 
         let container: Box = Box::builder()
             .orientation(Orientation::Vertical)
+            .margin_top(7)
             .margin_start(12)
             .margin_end(12)
             .build();
@@ -268,24 +301,18 @@ async fn main() {
             .margin_top(0)
             .has_frame(false)
             .propagate_natural_height(true)
-            .max_content_height(300)
             .child(&container)
             .build();
-
-        <Vec<CardData> as Clone>::clone(&card_data_vec)
-            .into_iter()
-            .for_each(|card_data| {
-                let item: Bin = Bin::builder()
-                    .margin_bottom(18)
-                    .child(&build_card(card_data))
-                    .build();
-                container.append(&item);
-            });
+        news_feed.add_controller(reload_gesture);
+        
+        let content_container: Box = Box::new(Orientation::Vertical, 0);
+        content_container.append(&reload_banner);
+        content_container.append(&news_feed);
 
         let toolbar_view: ToolbarView = ToolbarView::builder().build();
         toolbar_view.add_top_bar(&header_bar);
         toolbar_view.set_top_bar_style(adw::ToolbarStyle::Flat);
-        toolbar_view.set_content(Some(&news_feed));
+        toolbar_view.set_content(Some(&content_container));
 
         let story_page: NavigationPage = NavigationPage::builder()
             .title("Top Stories".to_string())
@@ -299,8 +326,25 @@ async fn main() {
             .application(app)
             .title("First App")
             .content(&nav_view)
+            .default_height(654)
+            .default_width(328)
             .build();
         window.present();
+
+        glib::spawn_future_local(async move {
+            loop {
+                if let Ok(card_data_vec) = receiver.recv().await {
+                    card_data_vec.into_iter().for_each(|card_data| {
+                        let item: Bin = Bin::builder()
+                            .margin_bottom(18)
+                            .child(&build_card(card_data))
+                            .build();
+                        container.append(&item);
+                    });
+                    break;
+                }
+            }
+        });
     });
 
     application.run();

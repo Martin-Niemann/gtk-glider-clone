@@ -4,9 +4,6 @@ version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 
-[env]
-OUT_DIR = "build_dir"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -19,6 +16,7 @@ serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.114"
 url = "=2.5.0"
 chrono = "0.4.35"
+async-channel = "2.2.0"
 
 [build-dependencies]
 glib-build-tools = "0.19.0"
