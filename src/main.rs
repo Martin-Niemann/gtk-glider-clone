@@ -252,7 +252,7 @@ fn main() {
         let (sender, receiver) = async_channel::bounded(1);
 
         runtime().spawn(clone!(@strong sender => async move {
-            let client = Client::new();
+            let client = Client::builder().use_rustls_tls().build().unwrap();
 
             let stories_result = fetch_stories(&client).await;
             let mut story_items: Vec<Item> = vec![];
