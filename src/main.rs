@@ -280,10 +280,12 @@ fn main() {
             .build();
         reload_gesture.connect_drag_end(|gesture, _, _| {
             gesture.set_state(gtk::EventSequenceState::Claimed);
-            println!("{}", gesture.offset().unwrap().1);
-            if gesture.offset().unwrap().1 > 70.0 {
-                println!("we dragged down!!");
-                //reload_banner.set_revealed(true);
+            if gesture.offset().is_some() {
+                println!("{}", gesture.offset().unwrap().1);
+                if gesture.offset().unwrap().1 > 70.0 {
+                    println!("we dragged down!!");
+                    //reload_banner.set_revealed(true);
+                }
             }
         });
 
