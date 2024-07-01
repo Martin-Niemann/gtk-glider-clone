@@ -1,4 +1,4 @@
-use gtk::{Box, GestureClick, GestureDrag, Orientation, ScrolledWindow};
+use gtk::{Box, GestureDrag, Orientation, ScrolledWindow};
 use adw::{
     prelude::*, Application, ApplicationWindow, Banner, Bin, HeaderBar, NavigationPage,
     NavigationView, ToolbarView,
@@ -15,6 +15,11 @@ use crate::{
     card::build_card, network::{fetch_stories, Item}, transform::{stories_to_card_data_transform, CardData}
 };
 
+enum Event {
+    SentCardData(Vec<CardData>),
+    ClickedStory(),
+}
+
 pub struct App {}
 
 impl App {
@@ -24,7 +29,7 @@ impl App {
             .build();
 
         application.connect_activate(move |app| {
-            let (sender, receiver) = async_channel::bounded(1);
+            let (sender, receiver) = async_channel::bounded::<Event>(1);
 
             let client = Client::builder().use_rustls_tls().build().unwrap();
 
@@ -38,23 +43,6 @@ impl App {
                 .title("Reloading")
                 .build();
 
-            let reload_gesture: GestureDrag = GestureDrag::builder().button(0).n_points(1).build();
-            
-            reload_gesture.connect_drag_end(clone!(@weak reload_banner, @strong sender, @strong client => move |gesture, _, _| {
-                gesture.set_state(gtk::EventSequenceState::Claimed);
-                if gesture.offset().is_some() {
-                    println!("{}", gesture.offset().unwrap().1);
-                    if gesture.offset().unwrap().1 > 70.0 {
-                        println!("we dragged down!!");
-                        spawn_cards_fetch_and_send(&sender, &client);
-                        reload_banner.set_title(format!("You pulled {}, and triggered a refresh!", gesture.offset().unwrap().1).as_str());
-                        reload_banner.set_revealed(true);
-                    }
-                }
-            }));
-
-            let header_bar: HeaderBar = HeaderBar::builder().decoration_layout("").build();
-
             let news_feed: ScrolledWindow = ScrolledWindow::builder()
                 .margin_bottom(0)
                 .margin_top(0)
@@ -62,7 +50,30 @@ impl App {
                 .propagate_natural_height(true)
                 //.child(&container)
                 .build();
+
+            let reload_gesture: GestureDrag = GestureDrag::builder().button(0).n_points(1).build();
+            
+            reload_gesture.connect_drag_end(clone!(@weak reload_banner, @weak news_feed, @strong sender, @strong client => move |gesture, _, _| {
+                // are we scrolled all the way to the top of the feed?
+                if news_feed.vadjustment().value() == 0.0 {
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    if gesture.offset().is_some() {
+                        println!("{}", gesture.offset().unwrap().1);
+                        // did we drag more than 70 pixels downwards?
+                        if gesture.offset().unwrap().1 > 70.0 {
+                            println!("we dragged down!!");
+                            spawn_cards_fetch_and_send(&sender, &client);
+                            reload_banner.set_title(format!("You pulled {}, and triggered a refresh!", gesture.offset().unwrap().1).as_str());
+                            reload_banner.set_revealed(true);
+                        }
+                    }
+                };
+            }));
+
             news_feed.add_controller(reload_gesture);
+
+            let header_bar: HeaderBar = HeaderBar::builder().decoration_layout("").build();
+            let header_bar_normal: HeaderBar = HeaderBar::builder().decoration_layout("").show_back_button(true).build();
 
             let content_container: Box = Box::new(Orientation::Vertical, 0);
             content_container.append(&reload_banner);
@@ -81,6 +92,14 @@ impl App {
             let nav_view: NavigationView = NavigationView::builder().build();
             nav_view.add(&story_page);
 
+            let item_page_toolbar_view: ToolbarView = ToolbarView::builder().build();
+            item_page_toolbar_view.add_top_bar(&header_bar_normal);
+            item_page_toolbar_view.set_top_bar_style(adw::ToolbarStyle::Flat);
+
+            let item_page: NavigationPage = NavigationPage::builder()
+                .child(&item_page_toolbar_view)
+                .build();
+
             let window: ApplicationWindow = ApplicationWindow::builder()
                 .application(app)
                 .title("First App")
@@ -94,32 +113,52 @@ impl App {
                 // the user interface has now been initialized.
                 // we now wait to recieve a Vec<CardData> on the async channel, 
                 // then construct the card widgets and add them to the view to be displayed
-                while let Ok(card_data_vec) = receiver.recv().await {
-                    let container: Box = Box::builder()
-                        .orientation(Orientation::Vertical)
-                        .margin_top(7)
-                        .margin_start(12)
-                        .margin_end(12)
-                        .build();
+                while let Ok(event) = receiver.recv().await {
+                    match event {
+                        Event::SentCardData(card_data_vec) => {
+                            let container: Box = Box::builder()
+                                .orientation(Orientation::Vertical)
+                                .margin_top(7)
+                                .margin_start(12)
+                                .margin_end(12)
+                                .build();
                     
-                    card_data_vec.into_iter().for_each(|card_data| {
-                        let gesture_click = GestureClick::new();
-                        gesture_click.connect_pressed(|gesture_click, _, _, _| {
-                            gesture_click.set_state(gtk::EventSequenceState::None);
-                            println!("Clicked a story!");
-                        });
+                            card_data_vec.into_iter().for_each(|card_data| {
+                                let sender_clone = sender.clone();
+                                let is_click_gesture: GestureDrag = GestureDrag::builder().button(0).n_points(1).build();
+                                is_click_gesture.connect_drag_end(move |gesture, _, _| {
+                                    // even by just tapping the screen, a finished "drag" is registered.
+                                    // we use this fact to set the treshold for what we consider a "click"
+                                    // to be a drag of 2 pixels or less in either vertical direction.
+                                    // to trigger a reload, the drag strength has to be above 70 pixels.
+                                    if gesture.offset().unwrap().1 <= 2.0 && gesture.offset().unwrap().1 >= -2.0 {
+                                        gesture.set_state(gtk::EventSequenceState::Claimed);
+                                        println!("Clicked a story!");
+                                        let send_clicked = clone!(@strong sender_clone => async move {
+                                            sender_clone.send(Event::ClickedStory()).await.expect("The channel needs to be open.");
+                                        });
+                                        glib::spawn_future_local(send_clicked);
+                                    } else {
+                                        gesture.set_state(gtk::EventSequenceState::Denied);
+                                    }
+                                });
                         
-                        let item: Bin = Bin::builder()
-                            .margin_bottom(18)
-                            .child(&build_card(card_data))
-                            .build();
-                        item.add_controller(gesture_click);
+                                let item: Bin = Bin::builder()
+                                    .margin_bottom(18)
+                                    .child(&build_card(card_data))
+                                    .build();
+                                item.add_controller(is_click_gesture);
 
-                        container.append(&item);
-                    });
-                    news_feed.set_child(Some(&container));
-                    println!("all done! hiding banner.");
-                    reload_banner.set_revealed(false);
+                                container.append(&item);
+                            });
+                            news_feed.set_child(Some(&container));
+                            println!("all done! hiding banner.");
+                            reload_banner.set_revealed(false);
+                        },
+                        Event::ClickedStory() => {
+                            nav_view.push(&item_page);
+                        },
+                    }
                 }
             };
 
@@ -134,7 +173,7 @@ impl App {
 // maps them to the Item model and returns these in a vector,
 // then tranforms these into a vector of CardData, which is Item data that has been processed for putting into Card widgets,
 // and finally sends them in a message on the Vec<CardData> async channel to be received by the watcher at an indeterminate point
-fn spawn_cards_fetch_and_send(sender: &Sender<Vec<CardData>>, client: &Client) {
+fn spawn_cards_fetch_and_send(sender: &Sender<Event>, client: &Client) {
     runtime().spawn(clone!(@strong sender, @strong client => async move {
             
         let stories_result = fetch_stories(&client).await;
@@ -151,8 +190,8 @@ fn spawn_cards_fetch_and_send(sender: &Sender<Vec<CardData>>, client: &Client) {
             panic!("Failed to load any stories");
         }
 
-        sender.send(card_data_vec).await.expect("The channel needs to be open.");
-    }));      
+        sender.send(Event::SentCardData(card_data_vec)).await.expect("The channel needs to be open.");
+    }));
 }
 
 // https://gtk-rs.org/gtk4-rs/stable/latest/book/main_event_loop.html#tokio
