@@ -1,4 +1,6 @@
-use gtk::{Box, GestureDrag, Orientation, ScrolledWindow};
+use std::fmt::Debug;
+
+use gtk::{Box, GestureDrag, GestureSwipe, Orientation, Overlay, Revealer, ScrolledWindow, Spinner};
 use adw::{
     prelude::*, Banner, HeaderBar, NavigationPage, ToolbarView,
 };
@@ -15,7 +17,8 @@ use crate::{application::{runtime, Event}, network::{fetch_stories, Item}, trans
 pub struct Feed {
     pub story_page: NavigationPage,
     pub news_feed: ScrolledWindow,
-    pub reload_banner: Banner
+    pub reload_banner: Banner,
+    pub spinner_revealer: Revealer
 }
 
 impl Feed {
@@ -34,24 +37,50 @@ impl Feed {
                 //.child(&container)
                 .build();
 
-            let reload_gesture: GestureDrag = GestureDrag::builder().button(0).n_points(1).build();
+            let spinner: Spinner = Spinner::new();
+            spinner.set_spinning(true);
+            spinner.set_sensitive(false);
+            spinner.set_height_request(38);
+            spinner.set_width_request(38);
+            //spinner.set_vexpand(false);
+            //spinner.set_hexpand(false);
+            spinner.set_valign(gtk::Align::Start);
+            spinner.set_halign(gtk::Align::Center);
+            spinner.set_margin_top(32);
+
+            let spinner_revealer: Revealer = Revealer::new();
+            spinner_revealer.set_child(Some(&spinner));
+            spinner_revealer.set_transition_type(gtk::RevealerTransitionType::SlideDown);
+            spinner_revealer.set_transition_duration(300);
+            spinner_revealer.set_sensitive(false);
+
+            let reload_gesture: GestureSwipe = GestureSwipe::builder().button(0).n_points(1).build();
             
-            reload_gesture.connect_drag_end(clone!(@weak reload_banner, @weak news_feed, @strong sender, @strong client => move |gesture, _, _| {
+            reload_gesture.connect_swipe(clone!(@weak reload_banner, @weak spinner_revealer, @weak news_feed, @strong sender, @strong client => move |gesture, x, y| {
                 // are we scrolled all the way to the top of the feed?
                 if news_feed.vadjustment().value() == 0.0 {
                     gesture.set_state(gtk::EventSequenceState::Claimed);
-                    if gesture.offset().is_some() {
-                        println!("{}", gesture.offset().unwrap().1);
-                        // did we drag more than 70 pixels downwards?
-                        if gesture.offset().unwrap().1 > 70.0 {
-                            println!("we dragged down!!");
+                    println!("{}", y);
+                        // did we swipe down with a velocity of more than 600 pixels per second?
+                        if y > 600.0 {
+                            println!("we swiped down!!");
+                            spinner_revealer.set_reveal_child(true);
                             spawn_cards_fetch_and_send(&sender, &client);
-                            reload_banner.set_title(format!("You pulled {}, and triggered a refresh!", gesture.offset().unwrap().1).as_str());
-                            reload_banner.set_revealed(true);
+                            //reload_banner.set_title(format!("You pulled {}, and triggered a refresh!", gesture.offset().unwrap().1).as_str());
+                            //reload_banner.set_revealed(true);
                         }
-                    }
                 };
             }));
+
+            reload_gesture.connect_update(|gesture, _| {
+                println!("{}", gesture.velocity().unwrap().1);
+            });
+
+            // opdater spinnerens placering efterhånden som brugeren dragger ned, 
+            // check om det er muligt at ændre den til at spinne langsomt/spinne når brugeren dragger via CSS.
+            //reload_gesture.connect_drag_update()
+
+            // når reload er ovre, lav en glib thread med et loop der reducerer opacity indtil spinneren er usynlig.
 
             news_feed.add_controller(reload_gesture);
 
@@ -61,17 +90,21 @@ impl Feed {
             content_container.append(&reload_banner);
             content_container.append(&news_feed);
 
+            let spinner_overlay: Overlay = Overlay::new();
+            spinner_overlay.set_child(Some(&content_container));
+            spinner_overlay.add_overlay(&spinner_revealer);
+
             let toolbar_view: ToolbarView = ToolbarView::builder().build();
             toolbar_view.add_top_bar(&header_bar);
             toolbar_view.set_top_bar_style(adw::ToolbarStyle::Flat);
-            toolbar_view.set_content(Some(&content_container));
+            toolbar_view.set_content(Some(&spinner_overlay));
 
             let story_page: NavigationPage = NavigationPage::builder()
                 .title("Top Stories".to_string())
                 .child(&toolbar_view)
                 .build();
 
-            let feed: Feed = Feed { story_page, news_feed, reload_banner };
+            let feed: Feed = Feed { story_page, news_feed, reload_banner, spinner_revealer };
             feed
     }
 }
