@@ -70,7 +70,7 @@ impl App {
                                     // we use this fact to set the treshold for what we consider a "click"
                                     // to be a drag of 2 pixels or less in either vertical direction.
                                     // to trigger a reload, the drag strength has to be above 70 pixels.
-                                    if gesture.offset().unwrap().1 <= 2.0 && gesture.offset().unwrap().1 >= -2.0 {
+                                    if gesture.offset().is_some() && gesture.offset().unwrap().1 <= 2.0 && gesture.offset().unwrap().1 >= -2.0 {
                                         gesture.set_state(gtk::EventSequenceState::Claimed);
                                         println!("Clicked a story!");
                                         let send_clicked = clone!(@strong sender_clone => async move {

@@ -54,26 +54,28 @@ impl Feed {
             spinner_revealer.set_transition_duration(300);
             spinner_revealer.set_sensitive(false);
 
-            let reload_gesture: GestureSwipe = GestureSwipe::builder().button(0).n_points(1).build();
+            let reload_gesture: GestureDrag = GestureDrag::builder().button(0).n_points(1).build();
             
-            reload_gesture.connect_swipe(clone!(@weak reload_banner, @weak spinner_revealer, @weak news_feed, @strong sender, @strong client => move |gesture, x, y| {
+            reload_gesture.connect_drag_end(clone!(@weak reload_banner, @weak spinner_revealer, @weak news_feed, @strong sender, @strong client => move |gesture, _, _| {
                 // are we scrolled all the way to the top of the feed?
                 if news_feed.vadjustment().value() == 0.0 {
                     gesture.set_state(gtk::EventSequenceState::Claimed);
-                    println!("{}", y);
-                        // did we swipe down with a velocity of more than 600 pixels per second?
-                        if y > 600.0 {
-                            println!("we swiped down!!");
+                    if gesture.offset().is_some() {
+                        println!("{}", gesture.offset().unwrap().1);
+                        // did we drag more than 70 pixels downwards?
+                        if gesture.offset().unwrap().1 > 70.0 {
+                            println!("we dragged down!!");
                             spinner_revealer.set_reveal_child(true);
                             spawn_cards_fetch_and_send(&sender, &client);
                             //reload_banner.set_title(format!("You pulled {}, and triggered a refresh!", gesture.offset().unwrap().1).as_str());
                             //reload_banner.set_revealed(true);
                         }
+                    }
                 };
             }));
 
-            reload_gesture.connect_update(|gesture, _| {
-                println!("{}", gesture.velocity().unwrap().1);
+            reload_gesture.connect_drag_update(|_, x, y| {
+                println!("x: {}, y: {}", x, y);
             });
 
             // opdater spinnerens placering efterhånden som brugeren dragger ned, 
