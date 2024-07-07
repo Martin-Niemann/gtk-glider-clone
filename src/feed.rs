@@ -1,6 +1,4 @@
-use std::fmt::Debug;
-
-use gtk::{Box, GestureDrag, GestureSwipe, Orientation, Overlay, Revealer, ScrolledWindow, Spinner};
+use gtk::{Box, GestureSwipe, Orientation, Overlay, ScrolledWindow, Spinner};
 use adw::{
     prelude::*, Banner, HeaderBar, NavigationPage, ToolbarView,
 };
@@ -11,14 +9,11 @@ use async_channel::Sender;
 
 use crate::{application::{runtime, Event}, network::{fetch_stories, Item}, transform::{stories_to_card_data_transform, CardData}};
 
-// make a struct where I can expose both story_page as well as reload_banner and whatever else becomes neccessary
-// very nice as it it very easily be possible to see which widgets are modified throghout runtime
-
 pub struct Feed {
     pub story_page: NavigationPage,
     pub news_feed: ScrolledWindow,
     pub reload_banner: Banner,
-    pub spinner_revealer: Revealer
+    pub spinner: Spinner
 }
 
 impl Feed {
@@ -34,55 +29,63 @@ impl Feed {
                 .margin_top(0)
                 .has_frame(false)
                 .propagate_natural_height(true)
-                //.child(&container)
                 .build();
 
             let spinner: Spinner = Spinner::new();
             spinner.set_spinning(true);
+            spinner.set_opacity(0.0);
             spinner.set_sensitive(false);
             spinner.set_height_request(38);
             spinner.set_width_request(38);
-            //spinner.set_vexpand(false);
-            //spinner.set_hexpand(false);
             spinner.set_valign(gtk::Align::Start);
             spinner.set_halign(gtk::Align::Center);
-            spinner.set_margin_top(32);
 
-            let spinner_revealer: Revealer = Revealer::new();
-            spinner_revealer.set_child(Some(&spinner));
-            spinner_revealer.set_transition_type(gtk::RevealerTransitionType::SlideDown);
-            spinner_revealer.set_transition_duration(300);
-            spinner_revealer.set_sensitive(false);
+            let reload_gesture: GestureSwipe = GestureSwipe::builder().button(0).n_points(1).build();
 
-            let reload_gesture: GestureDrag = GestureDrag::builder().button(0).n_points(1).build();
-            
-            reload_gesture.connect_drag_end(clone!(@weak reload_banner, @weak spinner_revealer, @weak news_feed, @strong sender, @strong client => move |gesture, _, _| {
-                // are we scrolled all the way to the top of the feed?
-                if news_feed.vadjustment().value() == 0.0 {
-                    gesture.set_state(gtk::EventSequenceState::Claimed);
-                    if gesture.offset().is_some() {
-                        println!("{}", gesture.offset().unwrap().1);
-                        // did we drag more than 70 pixels downwards?
-                        if gesture.offset().unwrap().1 > 70.0 {
-                            println!("we dragged down!!");
-                            spinner_revealer.set_reveal_child(true);
-                            spawn_cards_fetch_and_send(&sender, &client);
-                            //reload_banner.set_title(format!("You pulled {}, and triggered a refresh!", gesture.offset().unwrap().1).as_str());
-                            //reload_banner.set_revealed(true);
-                        }
-                    }
-                };
-            }));
+            unsafe { 
+                reload_gesture.set_data("previous_swipe_point", 0.0);
+                reload_gesture.set_data("previous_opacity", 0.0); 
+            };
 
-            reload_gesture.connect_drag_update(|_, x, y| {
-                println!("x: {}, y: {}", x, y);
+            reload_gesture.connect_begin(|gesture, sequence| unsafe {
+                gesture.set_data("previous_swipe_point", gesture.point(sequence).unwrap().1);
+                gesture.set_data("previous_opacity", gesture.point(sequence).unwrap().1);
             });
 
-            // opdater spinnerens placering efterhånden som brugeren dragger ned, 
-            // check om det er muligt at ændre den til at spinne langsomt/spinne når brugeren dragger via CSS.
-            //reload_gesture.connect_drag_update()
+            reload_gesture.connect_update(clone!(@weak spinner, @weak news_feed, @strong sender, @strong client => move |gesture, sequence| unsafe  {
+                //are we scrolled all the way to the top of the feed?
+                if news_feed.vadjustment().value() == 0.0 {
+                    let previous_swipe_point = gesture.steal_data::<f64>("previous_swipe_point").unwrap();
+                    let swipe_point_difference: f64 = 
+                        (gesture.point(sequence).unwrap().1 - previous_swipe_point).clamp(-1.0, 1.0) 
+                        + ((gesture.point(sequence).unwrap().1 - previous_swipe_point) / 2.0);
+                    gesture.set_data("previous_swipe_point", gesture.point(sequence).unwrap().1);
+                    spinner.set_margin_top(spinner.margin_top() + swipe_point_difference as i32);
+                    println!("spinner margin: {}, previous margin: {}, difference: {}", spinner.margin_top(), previous_swipe_point, swipe_point_difference);
 
-            // når reload er ovre, lav en glib thread med et loop der reducerer opacity indtil spinneren er usynlig.
+                    let opacity_difference: f64 = (gesture.point(sequence).unwrap().1 - gesture.steal_data::<f64>("previous_opacity").unwrap()) / 100.0;
+                    gesture.set_data("previous_opacity", gesture.point(sequence).unwrap().1);
+                    spinner.set_opacity(spinner.opacity() + opacity_difference);
+
+                    // did we drag more than 70 pixels downwards?
+                    if spinner.margin_top() > 70 {
+                        gesture.set_state(gtk::EventSequenceState::Claimed);
+                        gesture.reset();
+                        println!("we dragged down!!");
+                        spinner.set_margin_top(36);
+                        gesture.set_data("previous_swipe_point", 0.0);
+                        spawn_cards_fetch_and_send(&sender, &client);
+                    }
+                }
+            }));
+
+            reload_gesture.connect_end(clone!(@weak spinner => move |gesture, _| unsafe  {
+                if !gesture.is_active() {
+                    spinner.set_opacity(0.0);
+                    spinner.set_margin_top(0);
+                    gesture.set_data("previous_swipe_point", 0.0);
+                }
+            }));
 
             news_feed.add_controller(reload_gesture);
 
@@ -94,7 +97,7 @@ impl Feed {
 
             let spinner_overlay: Overlay = Overlay::new();
             spinner_overlay.set_child(Some(&content_container));
-            spinner_overlay.add_overlay(&spinner_revealer);
+            spinner_overlay.add_overlay(&spinner);
 
             let toolbar_view: ToolbarView = ToolbarView::builder().build();
             toolbar_view.add_top_bar(&header_bar);
@@ -106,7 +109,7 @@ impl Feed {
                 .child(&toolbar_view)
                 .build();
 
-            let feed: Feed = Feed { story_page, news_feed, reload_banner, spinner_revealer };
+            let feed: Feed = Feed { story_page, news_feed, reload_banner, spinner };
             feed
     }
 }

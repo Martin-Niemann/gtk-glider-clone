@@ -93,7 +93,9 @@ impl App {
                             feed.news_feed.set_child(Some(&container));
                             println!("all done! hiding banner.");
                             //feed.reload_banner.set_revealed(false);
-                            feed.spinner_revealer.set_reveal_child(false);
+                            //feed.spinner_revealer.set_reveal_child(false);
+                            feed.spinner.set_opacity(0.0);
+                            feed.spinner.set_margin_top(0);
                         },
                         Event::ClickedStory() => {
                             nav_view.push(&details.details_page);
