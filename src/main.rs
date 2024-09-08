@@ -1,9 +1,10 @@
 pub mod application;
 pub mod transform;
 pub mod network;
-pub mod card;
-pub mod feed;
-pub mod details;
+pub mod window;
+pub mod feed_page;
+pub mod story_page;
+pub mod story_card;
 
 use adw::{prelude::*, Application};
 use application::App;

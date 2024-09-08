@@ -1,0 +1,58 @@
+using Gtk 4.0;
+
+template $StoryCard: Box {
+    orientation: vertical;
+
+    Box top_box {
+        orientation: horizontal;
+
+        Label title_and_url_label {
+            xalign: 0.0;
+            wrap: true;
+            natural-wrap-mode: none;
+            wrap-mode: word;
+            lines: 2;
+            ellipsize: end;
+        }
+    }
+
+    Box bottom_box {
+        orientation: horizontal;
+
+        Image {
+            resource: "/org/gtk/gtk-glider-clone/icons/scalable/actions/arrow2-up-symbolic.svg";
+            pixel-size: 12;
+            margin-end: 4;
+        }
+
+        Label score_count_label {
+            width-request: 12;
+            height-request: 12;
+        }
+
+        Image {
+            resource: "/org/gtk/gtk-glider-clone/icons/scalable/actions/chat-bubble-emtpy-symbolic.svg";
+            pixel-size: 12;
+            margin-start: 10;
+            margin-end: 4;
+        }
+
+        Label comments_count_label {
+            width-request: 12;
+            height-request: 12;
+        }
+
+        Label author_label {
+            width-request: 12;
+            height-request: 12;
+            margin-start: 10;
+        }
+
+        Label time_formatted_label {
+            width-request: 12;
+            height-request: 12;
+            halign: end;
+            hexpand: true;
+        }
+    }
+}

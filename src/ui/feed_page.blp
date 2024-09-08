@@ -1,0 +1,51 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $FeedPage: Adw.NavigationPage {
+    title: "Top Stories";
+
+    Adw.ToolbarView {
+        top-bar-style: flat;
+
+        [top]
+        Adw.HeaderBar {
+            decoration-layout: "";
+        }
+
+        Overlay {
+            [overlay]
+            Spinner spinner {
+                spinning: true;
+                opacity: 0.0;
+                sensitive: false;
+                height-request: 38;
+                width-request: 38;
+                valign: start;
+                halign: center;
+            }
+
+            Box {
+                orientation: vertical;
+
+                Adw.Banner reload_banner {
+                    title: "Reloading";
+                    button-label: "";
+                    revealed: false;
+                }
+
+                ScrolledWindow news_feed {
+                    margin-bottom: 0;
+                    margin-top: 0;
+                    has-frame: false;
+                    propagate-natural-height: true;
+                    
+                    //[controller]
+                    GestureSwipe reload_gesture {
+                        button: 0;
+                        n-points: 1;
+                    }
+                }
+            }
+        }
+    }
+}

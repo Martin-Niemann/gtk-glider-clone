@@ -21,6 +21,7 @@ pub struct Item {
     pub descendants: Option<u32>,
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Deserialize, Debug, Clone, Copy)]
 pub enum Type {
     job,

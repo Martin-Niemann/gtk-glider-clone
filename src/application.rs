@@ -1,13 +1,13 @@
-use gtk::{glib::{self, clone}, Box, GestureDrag, Orientation};
+use std::borrow::Borrow;
+
+use gtk::{glib::{self, clone, closure_local}, Box, GestureDrag, Orientation};
 use adw::{
-    prelude::*, Application, ApplicationWindow, Bin, NavigationView,
+    prelude::*, Application, Bin,
 };
 use reqwest::Client;
-use tokio::runtime::Runtime;
-use std::sync::OnceLock;
 
 use crate::{
-    card::build_card, details::Details, feed::{spawn_cards_fetch_and_send, Feed}, transform::CardData
+    feed_page::FeedPage, story_card::StoryCard, story_page::StoryPage, transform::{spawn_cards_fetch_and_send, CardData}, window::GliderCloneWindow
 };
 
 pub enum Event {
@@ -32,20 +32,18 @@ impl App {
             // speed is key for a mobile app, and this way the user has to wait less time before the content appears
             spawn_cards_fetch_and_send(&sender, &client);
 
-            // initialize the screens
-            let feed: Feed = Feed::new(&sender, &client);
-            let details: Details = Details::new();
+            // initialize the application screens
+            let feed_page: FeedPage = FeedPage::new();
+            
+            // setup listener to react when the feed page wants to refresh the feed
+            feed_page.connect_closure("fetch-cards", false, closure_local!(@strong sender => move |_: FeedPage| {
+                spawn_cards_fetch_and_send(&sender, &client);
+            }));
 
-            let nav_view: NavigationView = NavigationView::builder().build();
-            nav_view.add(&feed.story_page);
+            let story_page: StoryPage = StoryPage::new();
 
-            let window: ApplicationWindow = ApplicationWindow::builder()
-                .application(app)
-                .title("First App")
-                .content(&nav_view)
-                .default_height(654)
-                .default_width(328)
-                .build();
+            let window = GliderCloneWindow::new(app);
+            window.add_nav_page(&feed_page.borrow());
             window.present();
 
             let event_handler = async move {
@@ -84,36 +82,30 @@ impl App {
                         
                                 let item: Bin = Bin::builder()
                                     .margin_bottom(18)
-                                    .child(&build_card(card_data))
+                                    //.child(&build_card(card_data))
+                                    .child(&StoryCard::new(card_data))
                                     .build();
                                 item.add_controller(is_click_gesture);
 
                                 container.append(&item);
                             });
-                            feed.news_feed.set_child(Some(&container));
+
+                            feed_page.set_cards(&container);
                             println!("all done! hiding banner.");
+                            feed_page.reset_spinner();
                             //feed.reload_banner.set_revealed(false);
                             //feed.spinner_revealer.set_reveal_child(false);
-                            feed.spinner.set_opacity(0.0);
-                            feed.spinner.set_margin_top(0);
                         },
                         Event::ClickedStory() => {
-                            nav_view.push(&details.details_page);
+                            window.push_nav_page(&story_page.borrow());
                         },
                     }
                 }
             };
 
-            // spawns a infinitely running glib thread that handles all events received from signals
+            // spawns a future on the glib thread for handling all events received from the async channel
             glib::spawn_future_local(event_handler);
         });
         application
     }
-}
-
-// https://gtk-rs.org/gtk4-rs/stable/latest/book/main_event_loop.html#tokio
-// reqwest requires the Tokio runtime, this initializes a Tokio runtime that is not blocked by the glib main loop(?)
-pub fn runtime() -> &'static Runtime {
-    static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| Runtime::new().expect("Setting up tokio runtime needs to succeed."))
 }
