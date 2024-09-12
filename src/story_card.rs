@@ -1,22 +1,21 @@
-use glib::subclass::{
-    types::{ObjectSubclass, ObjectSubclassExt},
-    InitializingObject,
-};
-use gtk::{glib, prelude::ObjectExt, subclass::prelude::ObjectSubclassIsExt};
+use glib::subclass::{types::ObjectSubclass, InitializingObject};
 use gtk::glib::Object;
+use gtk::subclass::box_::BoxImpl;
 use gtk::subclass::widget::WidgetClassExt;
 use gtk::subclass::{
     prelude::{ObjectImpl, ObjectImplExt},
     widget::{CompositeTemplateClass, CompositeTemplateInitializingExt, WidgetImpl},
 };
 use gtk::CompositeTemplate;
+use gtk::{
+    glib::{self},
+    prelude::ObjectExt,
+    subclass::prelude::ObjectSubclassIsExt,
+};
 use gtk::{Label, TemplateChild};
-use gtk::subclass::prelude::DerivedObjectProperties;
 use std::cell::RefCell;
-use glib::Properties;
-use gtk::subclass::box_::BoxImpl;
 
-use crate::transform::CardData;
+use crate::story_object::StoryObject;
 
 glib::wrapper! {
     pub struct StoryCard(ObjectSubclass<imp::StoryCard>)
@@ -25,50 +24,77 @@ glib::wrapper! {
                     gtk::ConstraintTarget, gtk::Orientable;
 }
 
+impl Default for StoryCard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StoryCard {
-    pub fn new(card_data: CardData) -> Self {
-        Object::builder()
-        .property("card_data", card_data)
-        .build()
+    pub fn new() -> Self {
+        Object::builder().build()
     }
 
-    fn setup_card(&self) {
-        self.format_title_and_url();
-        self.imp().score_count_label.set_label(&self.score_count().to_string());
-        self.imp().comments_count_label.set_label(&self.comments_count().to_string());
-        self.imp().author_label.set_label(&self.author());
-        self.format_time_formatted();
-    }
+    pub fn bind(&self, story_object: &StoryObject) {
+        let title_and_url_label = self.imp().title_and_url_label.get();
+        let score_count_label = self.imp().score_count_label.get();
+        let comments_count_label = self.imp().comments_count_label.get();
+        let author_label = self.imp().author_label.get();
+        let time_formatted_label = self.imp().time_formatted_label.get();
+        let mut bindings = self.imp().bindings.borrow_mut();
 
-    fn format_title_and_url(&self) {
-        self.imp().title_and_url_label.set_markup(
-            format!(
-                "<span size=\"115%\">{}</span> <span foreground=\"grey\">({})</span>",
-                self.title(),
-                self.url()
-            )
-            .as_str(),
+        bindings.push(
+            story_object
+                .bind_property("title-and-url", &title_and_url_label, "label")
+                .sync_create()
+                .build(),
+        );
+
+        bindings.push(
+            story_object
+                .bind_property("score-count", &score_count_label, "label")
+                .sync_create()
+                .build(),
+        );
+
+        bindings.push(
+            story_object
+                .bind_property("comments-count", &comments_count_label, "label")
+                .sync_create()
+                .build(),
+        );
+
+        bindings.push(
+            story_object
+                .bind_property("author", &author_label, "label")
+                .sync_create()
+                .build(),
+        );
+
+        bindings.push(
+            story_object
+                .bind_property("time-formatted", &time_formatted_label, "label")
+                .sync_create()
+                .build(),
         );
     }
 
-    fn format_time_formatted(&self) {
-        self.imp().time_formatted_label.set_markup(
-            format!(
-                "<span foreground=\"grey\">{}</span>",
-                self.time_formatted()
-            )
-            .as_str(),
-        );
+    pub fn unbind(&self) {
+        // Unbind all stored bindings
+        for binding in self.imp().bindings.borrow_mut().drain(..) {
+            binding.unbind();
+        }
     }
 }
 
 mod imp {
+    use glib::Binding;
+
     use super::*;
 
     // ANCHOR: struct_and_subclass
     // Object holding the state
-    #[derive(CompositeTemplate, Properties, Default)]
-    #[properties(wrapper_type = super::StoryCard)]
+    #[derive(CompositeTemplate, Default)]
     #[template(file = "src/ui/story_card.blp")]
     pub struct StoryCard {
         #[template_child]
@@ -81,14 +107,7 @@ mod imp {
         pub author_label: TemplateChild<Label>,
         #[template_child]
         pub time_formatted_label: TemplateChild<Label>,
-        #[property(get, set, construct_only)]
-        #[property(name = "title", get, set, type = String, member = title)]
-        #[property(name = "url", get, set, type = String, member = url)]
-        #[property(name = "score-count", get, set, type = u32, member = score)]
-        #[property(name = "comments-count", get, set, type = u32, member = descendants)]
-        #[property(name = "author", get, set, type = String, member = by)]
-        #[property(name = "time-formatted", get, set, type = String, member = time)]
-        card_data: RefCell<CardData>
+        pub bindings: RefCell<Vec<Binding>>,
     }
 
     // The central trait for subclassing a GObject
@@ -111,15 +130,13 @@ mod imp {
 
     // ANCHOR: constructed
     // Trait shared by all GObjects
-    #[glib::derived_properties]
     impl ObjectImpl for StoryCard {
         fn constructed(&self) {
             // Call "constructed" on parent
             self.parent_constructed();
 
             // Setup
-            let obj = self.obj();
-            obj.setup_card();
+            //let obj = self.obj();
         }
     }
     // ANCHOR_END: constructed

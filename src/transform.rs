@@ -2,23 +2,12 @@ use std::sync::OnceLock;
 
 use async_channel::Sender;
 use chrono::{DateTime, Utc};
-use gtk::glib::{self, clone};
+use gtk::glib::clone;
 use reqwest::Client;
 use tokio::runtime::Runtime;
 use url::Url;
 
-use crate::{application::Event, network::{fetch_stories, Item}};
-
-#[derive(Clone, Debug, Default, glib::Boxed)]
-#[boxed_type(name = "CardData")]
-pub struct CardData {
-    pub title: String,
-    pub url: String,
-    pub score: u32,
-    pub descendants: u32,
-    pub by: String,
-    pub time: String,
-}
+use crate::{application::Event, network::{fetch_stories, Item}, story_object::StoryData};
 
 // https://gtk-rs.org/gtk4-rs/stable/latest/book/main_event_loop.html#tokio
 // reqwest requires the Tokio runtime, this initializes a Tokio runtime that is not blocked by the glib main loop(?)
@@ -42,19 +31,19 @@ pub fn spawn_cards_fetch_and_send(sender: &Sender<Event>, client: &Client) {
             Err(e) => println!("{}", e),
         }
 
-        let card_data_vec: Vec<CardData> = stories_to_card_data_transform(story_items);
+        let card_data_vec: Vec<StoryData> = stories_to_card_data_transform(story_items);
 
         if card_data_vec.is_empty() {
             panic!("Failed to load any stories");
         }
 
-        sender.send(Event::SentCardData(card_data_vec)).await.expect("The channel needs to be open.");
+        sender.send(Event::SentStoryData(card_data_vec)).await.expect("The channel needs to be open.");
     }));
 }
 
 // process JSON data from the Hacker News API into presentable strings tailored for Card widgets
-pub fn stories_to_card_data_transform(story_items: Vec<Item>) -> Vec<CardData> {
-    let mut cards: Vec<CardData> = vec![];
+pub fn stories_to_card_data_transform(story_items: Vec<Item>) -> Vec<StoryData> {
+    let mut story_data: Vec<StoryData> = vec![];
     story_items.into_iter().for_each(|story_item| {
         let mut url: String = "".to_string();
 
@@ -69,6 +58,12 @@ pub fn stories_to_card_data_transform(story_items: Vec<Item>) -> Vec<CardData> {
                     .to_string();
             }
         }
+
+        let title_and_url: String = format!(
+            "<span size=\"115%\">{}</span> <span foreground=\"grey\">({})</span>",
+            story_item.title.unwrap_or("".to_string()),
+            url
+        );
 
         let mut time_string: String = "".to_string();
         let date_time = DateTime::from_timestamp(story_item.time.unwrap_or(0), 0);
@@ -88,14 +83,15 @@ pub fn stories_to_card_data_transform(story_items: Vec<Item>) -> Vec<CardData> {
             time_string = format!("{} years ago", num_years);
         }
 
-        cards.push(CardData {
-            title: story_item.title.unwrap_or("".to_string()),
-            url,
-            score: story_item.score.unwrap_or(0),
-            descendants: story_item.descendants.unwrap_or(0),
-            by: story_item.by.unwrap_or("".to_string()),
-            time: time_string,
+        let time_formatted: String = format!("<span foreground=\"grey\">{}</span>", time_string);
+
+        story_data.push(StoryData {
+            title_and_url,
+            score_count: story_item.score.unwrap_or(0),
+            comments_count: story_item.descendants.unwrap_or(0),
+            author: story_item.by.unwrap_or("".to_string()),
+            time_formatted
         });
     });
-    cards
+    story_data
 }

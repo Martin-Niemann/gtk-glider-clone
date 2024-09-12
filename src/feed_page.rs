@@ -3,26 +3,26 @@ use glib::subclass::{
     types::{ObjectSubclass, ObjectSubclassExt},
     InitializingObject,
 };
-use gtk::{glib::clone, prelude::ObjectExt, subclass::prelude::ObjectSubclassIsExt};
-use adw::prelude::GestureExt;
-use gtk::glib;
 use gtk::glib::Object;
+use gtk::prelude::{Cast, CastNone};
+use gtk::subclass::widget::WidgetClassExt;
 use gtk::subclass::{
     prelude::{ObjectImpl, ObjectImplExt},
     widget::{CompositeTemplateClass, CompositeTemplateInitializingExt, WidgetImpl},
 };
+use gtk::{ListItem, SignalListItemFactory};
 use gtk::CompositeTemplate;
-use gtk::{ScrolledWindow, TemplateChild};
-use adw::Banner;
-use gtk::Spinner;
-use gtk::Box;
-use gtk::GestureSwipe;
-use gtk::prelude::AdjustmentExt;
-use gtk::prelude::WidgetExt;
-use gtk::prelude::EventControllerExt;
-use gtk::subclass::widget::WidgetClassExt;
-use std::sync::OnceLock;
-use glib::subclass::Signal;
+use gtk::{glib, NoSelection};
+use gtk::subclass::prelude::ObjectSubclassIsExt;
+use gtk::TemplateChild;
+use std::cell::RefCell;
+
+
+use gtk::{gio::ListStore, ListView};
+use gtk::prelude::ListItemExt;
+
+use crate::story_card::StoryCard;
+use crate::story_object::{StoryData, StoryObject};
 
 glib::wrapper! {
     pub struct FeedPage(ObjectSubclass<imp::FeedPage>)
@@ -36,60 +36,85 @@ impl FeedPage {
         Object::builder().build()
     }
 
-    pub fn set_cards(&self, container: &Box) {
-        self.imp().news_feed.set_child(Some(container));
+    fn cards(&self) -> ListStore {
+        self.imp()
+            .cards
+            .borrow()
+            .clone()
+            .expect("Could not get current cards.")
     }
 
-    pub fn reset_spinner(&self) {
-        self.imp().spinner.set_opacity(0.0);
-        self.imp().spinner.set_margin_top(0);
+    fn setup_model_and_view(&self) {
+        // Create new model
+        let model = ListStore::new::<StoryObject>();
+
+        // Get state and set model
+        self.imp().cards.replace(Some(model));
+
+        // Wrap model with selection and pass it to the list view
+        let selection_model = NoSelection::new(Some(self.cards()));
+        self.imp().cards_list.set_model(Some(&selection_model));
     }
 
-    fn setup_gesture(&self) {
-        let reload_gesture = self.imp().reload_gesture.get();
-        let news_feed = self.imp().news_feed.get();
-        let spinner = self.imp().spinner.get();
-        
-        reload_gesture.connect_begin(|gesture, sequence| unsafe {
-            gesture.set_data("previous_swipe_point", gesture.point(sequence).unwrap().1);
-            gesture.set_data("previous_opacity", gesture.point(sequence).unwrap().1);
+    pub fn setup_cards(&self, story_data_vec: Vec<StoryData>) {
+        // this may be a candidate for using rayon?
+        // https://rust-lang-nursery.github.io/rust-cookbook/concurrency/parallel.html
+        for story_data in story_data_vec {
+            let story_object = StoryObject::new(story_data);
+            self.cards().append(&story_object);
+        }
+    }
+
+    fn setup_factory(&self) {
+        // Create a new factory
+        let factory = SignalListItemFactory::new();
+
+        // Create an empty `StoryCard` during setup
+        factory.connect_setup(move |_, list_item| {
+            // Create `StoryCard`
+            let story_card = StoryCard::new();
+            list_item
+                .downcast_ref::<ListItem>()
+                .expect("Needs to be ListItem")
+                .set_child(Some(&story_card));
         });
 
-        reload_gesture.connect_update(clone!(@weak self as obj_self, @weak spinner, @weak news_feed => move |gesture, sequence| unsafe  {
-            //are we scrolled all the way to the top of the feed?
-            if news_feed.vadjustment().value() == 0.0 {
-                let previous_swipe_point = gesture.steal_data::<f64>("previous_swipe_point").unwrap();
-                let swipe_point_difference: f64 = 
-                    (gesture.point(sequence).unwrap().1 - previous_swipe_point).clamp(-1.0, 1.0) 
-                    + ((gesture.point(sequence).unwrap().1 - previous_swipe_point) / 2.0);
-                gesture.set_data("previous_swipe_point", gesture.point(sequence).unwrap().1);
-                spinner.set_margin_top(spinner.margin_top() + swipe_point_difference as i32);
-                println!("spinner margin: {}, previous margin: {}, difference: {}", spinner.margin_top(), previous_swipe_point, swipe_point_difference);
+        // Tell factory how to bind `StoryCard` to a `StoryObject`
+        factory.connect_bind(move |_, list_item| {
+            // Get `StoryObject` from `ListItem`
+            let story_object = list_item
+                .downcast_ref::<ListItem>()
+                .expect("Needs to be ListItem")
+                .item()
+                .and_downcast::<StoryObject>()
+                .expect("The item has to be an `StoryObject`.");
 
-                let opacity_difference: f64 = (gesture.point(sequence).unwrap().1 - gesture.steal_data::<f64>("previous_opacity").unwrap()) / 100.0;
-                gesture.set_data("previous_opacity", gesture.point(sequence).unwrap().1);
-                spinner.set_opacity(spinner.opacity() + opacity_difference);
+            // Get `StoryCard` from `ListItem`
+            let story_card = list_item
+                .downcast_ref::<ListItem>()
+                .expect("Needs to be ListItem")
+                .child()
+                .and_downcast::<StoryCard>()
+                .expect("The child has to be a `StoryCard`.");
 
-                // did we drag more than 70 pixels downwards?
-                if spinner.margin_top() > 70 {
-                    gesture.set_state(gtk::EventSequenceState::Claimed);
-                    gesture.reset();
-                    println!("we dragged down!!");
-                    spinner.set_margin_top(36);
-                    gesture.set_data("previous_swipe_point", 0.0);
-                    obj_self.emit_by_name::<()>("fetch-cards", &[]);
-                    //spawn_cards_fetch_and_send(&sender, &client);
-                }
-            }
-        }));
+            story_card.bind(&story_object);
+        });
 
-        reload_gesture.connect_end(clone!(@weak spinner => move |gesture, _| unsafe  {
-            if !gesture.is_active() {
-                spinner.set_opacity(0.0);
-                spinner.set_margin_top(0);
-                gesture.set_data("previous_swipe_point", 0.0);
-            }
-        }));
+        // Tell factory how to unbind `StoryCard` from `StoryObject`
+        factory.connect_unbind(move |_, list_item| {
+            // Get `TaskRow` from `ListItem`
+            let story_card = list_item
+                .downcast_ref::<ListItem>()
+                .expect("Needs to be ListItem")
+                .child()
+                .and_downcast::<StoryCard>()
+                .expect("The child has to be a `StoryCard`.");
+
+            story_card.unbind();
+        });
+
+        // Set the factory of the list view
+        self.imp().cards_list.set_factory(Some(&factory));
     }
 }
 
@@ -102,13 +127,8 @@ mod imp {
     #[template(file = "src/ui/feed_page.blp")]
     pub struct FeedPage {
         #[template_child]
-        pub news_feed: TemplateChild<ScrolledWindow>,
-        #[template_child]
-        pub reload_banner: TemplateChild<Banner>,
-        #[template_child]
-        pub spinner: TemplateChild<Spinner>,
-        #[template_child]
-        pub reload_gesture: TemplateChild<GestureSwipe>,
+        pub cards_list: TemplateChild<ListView>,
+        pub cards: RefCell<Option<ListStore>>,
     }
 
     // The central trait for subclassing a GObject
@@ -138,15 +158,14 @@ mod imp {
 
             // Setup
             let obj = self.obj();
-            obj.setup_gesture();
+            obj.setup_model_and_view();
+            obj.setup_factory();
         }
 
-        fn signals() -> &'static [glib::subclass::Signal] {
-            static SIGNALS: OnceLock<Vec<Signal>> = OnceLock::new();
-            SIGNALS.get_or_init(|| {
-                vec![Signal::builder("fetch-cards").build()]
-            })
-        }
+        //fn signals() -> &'static [glib::subclass::Signal] {
+        //    static SIGNALS: OnceLock<Vec<Signal>> = OnceLock::new();
+        //    SIGNALS.get_or_init(|| vec![Signal::builder("fetch-cards").build()])
+        //}
     }
     // ANCHOR_END: constructed
 

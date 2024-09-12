@@ -2,11 +2,15 @@ using Gtk 4.0;
 
 template $StoryCard: Box {
     orientation: vertical;
+    margin-top: 5;
+    margin-start: 8;
+    margin-end: 8;
 
     Box top_box {
         orientation: horizontal;
 
         Label title_and_url_label {
+            use-markup: true;
             xalign: 0.0;
             wrap: true;
             natural-wrap-mode: none;
@@ -18,6 +22,8 @@ template $StoryCard: Box {
 
     Box bottom_box {
         orientation: horizontal;
+        margin-top: 7;
+        margin-bottom: 5;
 
         Image {
             resource: "/org/gtk/gtk-glider-clone/icons/scalable/actions/arrow2-up-symbolic.svg";
@@ -49,6 +55,7 @@ template $StoryCard: Box {
         }
 
         Label time_formatted_label {
+            use-markup: true;
             width-request: 12;
             height-request: 12;
             halign: end;
