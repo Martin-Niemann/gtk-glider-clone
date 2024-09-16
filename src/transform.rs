@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 
 use async_channel::Sender;
 use chrono::{DateTime, Utc};
-use gtk::glib::clone;
+use gtk::glib::{clone, markup_escape_text};
 use reqwest::Client;
 use tokio::runtime::Runtime;
 use url::Url;
@@ -61,7 +61,7 @@ pub fn stories_to_card_data_transform(story_items: Vec<Item>) -> Vec<StoryData> 
 
         let title_and_url: String = format!(
             "<span size=\"115%\">{}</span> <span foreground=\"grey\">({})</span>",
-            story_item.title.unwrap_or("".to_string()),
+            markup_escape_text(story_item.title.unwrap_or("".to_string()).as_str()),
             url
         );
 
@@ -83,7 +83,7 @@ pub fn stories_to_card_data_transform(story_items: Vec<Item>) -> Vec<StoryData> 
             time_string = format!("{} years ago", num_years);
         }
 
-        let time_formatted: String = format!("<span foreground=\"grey\">{}</span>", time_string);
+        let time_formatted: String = format!("<span foreground=\"grey\">{}</span>", markup_escape_text(time_string.as_str()));
 
         story_data.push(StoryData {
             title_and_url,
