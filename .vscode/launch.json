@@ -1,0 +1,45 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'gtk-glider-clone'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=gtk-glider-clone",
+                    "--package=gtk-glider-clone"
+                ],
+                "filter": {
+                    "name": "gtk-glider-clone",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'gtk-glider-clone'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=gtk-glider-clone",
+                    "--package=gtk-glider-clone"
+                ],
+                "filter": {
+                    "name": "gtk-glider-clone",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
