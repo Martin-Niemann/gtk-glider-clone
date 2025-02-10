@@ -1,9 +1,11 @@
 use adw::{subclass::prelude::NavigationPageImpl, SwipeTracker};
+use adw::{subclass::prelude::NavigationPageImpl, SwipeTracker};
 use glib::subclass::{
     types::{ObjectSubclass, ObjectSubclassExt},
     InitializingObject,
 };
 use gtk::prelude::{Cast, CastNone};
+use gtk::subclass::prelude::ObjectSubclassIsExt;
 use gtk::subclass::prelude::ObjectSubclassIsExt;
 use gtk::subclass::widget::WidgetClassExt;
 use gtk::subclass::{
@@ -12,6 +14,14 @@ use gtk::subclass::{
 };
 use gtk::CompositeTemplate;
 use gtk::TemplateChild;
+use gtk::TemplateChild;
+use gtk::{
+    gdk::Texture,
+    glib::{clone, Object},
+    graphene::Rect,
+    prelude::ObjectExt,
+    Snapshot,
+};
 use gtk::{
     gdk::Texture,
     glib::{clone, Object},
@@ -21,15 +31,22 @@ use gtk::{
 };
 use gtk::{glib, NoSelection};
 use gtk::{ListItem, SignalListItemFactory};
+use gtk::{ListItem, SignalListItemFactory};
 use std::cell::RefCell;
 
 use adw::prelude::SnapshotExt;
+use adw::prelude::SnapshotExt;
+use adw::prelude::WidgetExt;
 use adw::prelude::WidgetExt;
 use gtk::prelude::AdjustmentExt;
+use gtk::prelude::AdjustmentExt;
 use gtk::prelude::ListItemExt;
+use gtk::prelude::ListItemExt;
+use gtk::prelude::ScrollableExt;
 use gtk::prelude::ScrollableExt;
 use gtk::{gio::ListStore, ListView};
 
+use crate::gesture_box::GestureBox;
 use crate::gesture_box::GestureBox;
 use crate::story_card::StoryCard;
 use crate::story_object::{StoryData, StoryObject};
@@ -70,10 +87,14 @@ impl FeedPage {
         // this may be a candidate for using rayon?
         // https://rust-lang-nursery.github.io/rust-cookbook/concurrency/parallel.html
         self.cards().remove_all();
+        self.cards().remove_all();
         for story_data in story_data_vec {
             let story_object = StoryObject::new(story_data);
             self.cards().append(&story_object);
         }
+
+        self.imp().swipe_tracker.get().unwrap().set_enabled(true);
+        println!("all done!");
 
         self.imp().swipe_tracker.get().unwrap().set_enabled(true);
         println!("all done!");
@@ -184,6 +205,11 @@ mod imp {
     use glib::subclass::Signal;
     use gtk::Box;
 
+    use std::{cell::OnceCell, sync::OnceLock};
+
+    use glib::subclass::Signal;
+    use gtk::Box;
+
     use super::*;
 
     // ANCHOR: struct_and_subclass
@@ -194,10 +220,15 @@ mod imp {
         #[template_child]
         pub gesture_box: TemplateChild<GestureBox>,
         #[template_child]
+        pub gesture_box: TemplateChild<GestureBox>,
+        #[template_child]
         pub cards_list: TemplateChild<ListView>,
         #[template_child]
         pub spinner: TemplateChild<Box>,
+        #[template_child]
+        pub spinner: TemplateChild<Box>,
         pub cards: RefCell<Option<ListStore>>,
+        pub swipe_tracker: OnceCell<SwipeTracker>,
         pub swipe_tracker: OnceCell<SwipeTracker>,
     }
 
@@ -232,8 +263,14 @@ mod imp {
             obj.setup_factory();
             obj.setup_gestures();
             obj.setup_spinner();
+            obj.setup_gestures();
+            obj.setup_spinner();
         }
 
+        fn signals() -> &'static [glib::subclass::Signal] {
+            static SIGNALS: OnceLock<Vec<Signal>> = OnceLock::new();
+            SIGNALS.get_or_init(|| vec![Signal::builder("fetch-cards").build()])
+        }
         fn signals() -> &'static [glib::subclass::Signal] {
             static SIGNALS: OnceLock<Vec<Signal>> = OnceLock::new();
             SIGNALS.get_or_init(|| vec![Signal::builder("fetch-cards").build()])
