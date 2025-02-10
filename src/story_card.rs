@@ -1,4 +1,5 @@
 use glib::subclass::{types::ObjectSubclass, InitializingObject};
+use glib::Binding;
 use gtk::glib::Object;
 use gtk::subclass::box_::BoxImpl;
 use gtk::subclass::widget::WidgetClassExt;
@@ -88,8 +89,6 @@ impl StoryCard {
 }
 
 mod imp {
-    use glib::Binding;
-
     use super::*;
 
     // ANCHOR: struct_and_subclass
@@ -144,6 +143,6 @@ mod imp {
     // Trait shared by all widgets
     impl WidgetImpl for StoryCard {}
 
-    // Trait shared by all NavigationPages
+    // Trait shared by all Boxes
     impl BoxImpl for StoryCard {}
 }
