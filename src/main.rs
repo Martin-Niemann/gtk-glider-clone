@@ -6,6 +6,7 @@ pub mod feed_page;
 pub mod story_page;
 pub mod story_card;
 pub mod story_object;
+pub mod gesture_box;
 
 use adw::{prelude::*, Application};
 use application::App;

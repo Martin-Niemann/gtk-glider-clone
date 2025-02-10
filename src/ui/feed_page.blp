@@ -12,8 +12,11 @@ template $FeedPage: Adw.NavigationPage {
             decoration-layout: "";
         }
 
-        Box {
+        $GestureBox gesture_box {
             orientation: vertical;
+
+            Box spinner {
+            }
 
             ScrolledWindow {
                 has-frame: false;

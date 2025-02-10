@@ -1,26 +1,36 @@
-use adw::subclass::prelude::NavigationPageImpl;
+use adw::{subclass::prelude::NavigationPageImpl, SwipeTracker};
 use glib::subclass::{
     types::{ObjectSubclass, ObjectSubclassExt},
     InitializingObject,
 };
-use gtk::glib::Object;
 use gtk::prelude::{Cast, CastNone};
+use gtk::subclass::prelude::ObjectSubclassIsExt;
 use gtk::subclass::widget::WidgetClassExt;
 use gtk::subclass::{
     prelude::{ObjectImpl, ObjectImplExt},
     widget::{CompositeTemplateClass, CompositeTemplateInitializingExt, WidgetImpl},
 };
-use gtk::{ListItem, SignalListItemFactory};
 use gtk::CompositeTemplate;
-use gtk::{glib, NoSelection};
-use gtk::subclass::prelude::ObjectSubclassIsExt;
 use gtk::TemplateChild;
+use gtk::{
+    gdk::Texture,
+    glib::{clone, Object},
+    graphene::Rect,
+    prelude::ObjectExt,
+    Snapshot,
+};
+use gtk::{glib, NoSelection};
+use gtk::{ListItem, SignalListItemFactory};
 use std::cell::RefCell;
 
-
-use gtk::{gio::ListStore, ListView};
+use adw::prelude::SnapshotExt;
+use adw::prelude::WidgetExt;
+use gtk::prelude::AdjustmentExt;
 use gtk::prelude::ListItemExt;
+use gtk::prelude::ScrollableExt;
+use gtk::{gio::ListStore, ListView};
 
+use crate::gesture_box::GestureBox;
 use crate::story_card::StoryCard;
 use crate::story_object::{StoryData, StoryObject};
 
@@ -59,10 +69,14 @@ impl FeedPage {
     pub fn setup_cards(&self, story_data_vec: Vec<StoryData>) {
         // this may be a candidate for using rayon?
         // https://rust-lang-nursery.github.io/rust-cookbook/concurrency/parallel.html
+        self.cards().remove_all();
         for story_data in story_data_vec {
             let story_object = StoryObject::new(story_data);
             self.cards().append(&story_object);
         }
+
+        self.imp().swipe_tracker.get().unwrap().set_enabled(true);
+        println!("all done!");
     }
 
     fn setup_factory(&self) {
@@ -116,9 +130,60 @@ impl FeedPage {
         // Set the factory of the list view
         self.imp().cards_list.set_factory(Some(&factory));
     }
+
+    fn setup_gestures(&self) {
+        let obj = self;
+
+        let swipe_tracker: SwipeTracker = SwipeTracker::builder()
+            .swipeable(&self.imp().gesture_box.to_owned())
+            .orientation(gtk::Orientation::Vertical)
+            .reversed(true)
+            .allow_long_swipes(true)
+            .allow_mouse_drag(true)
+            .allow_window_handle(false)
+            .enabled(true)
+            .build();
+
+        swipe_tracker.connect_update_swipe(clone!(
+            #[weak]
+            obj,
+            move |swipe_tracker, progress| {
+                //are we scrolled all the way to the top of the feed?
+                if obj.imp().cards_list.vadjustment().unwrap().value() == 0.0 {
+                    println!("progress: {}", progress);
+
+                    if progress > 0.10 {
+                        println!("we dragged down!!");
+                        swipe_tracker.set_enabled(false);
+                        obj.emit_by_name::<()>("fetch-cards", &[]);
+                    }
+                }
+            }
+        ));
+
+        self.imp().swipe_tracker.set(swipe_tracker).unwrap();
+    }
+
+    fn setup_spinner(&self) {
+        let snapshot = Snapshot::new();
+        snapshot.append_texture(
+            &Texture::from_resource(
+                "/org/gtk/gtk-glider-clone/icons/scalable/actions/chat-bubble-emtpy-symbolic.svg",
+            ),
+            &Rect::new(0.0, 0.0, 32.0, 32.0),
+        );
+        self.imp()
+            .spinner
+            .snapshot_child(&self.imp().spinner.get(), &snapshot);
+    }
 }
 
 mod imp {
+    use std::{cell::OnceCell, sync::OnceLock};
+
+    use glib::subclass::Signal;
+    use gtk::Box;
+
     use super::*;
 
     // ANCHOR: struct_and_subclass
@@ -127,8 +192,13 @@ mod imp {
     #[template(file = "src/ui/feed_page.blp")]
     pub struct FeedPage {
         #[template_child]
+        pub gesture_box: TemplateChild<GestureBox>,
+        #[template_child]
         pub cards_list: TemplateChild<ListView>,
+        #[template_child]
+        pub spinner: TemplateChild<Box>,
         pub cards: RefCell<Option<ListStore>>,
+        pub swipe_tracker: OnceCell<SwipeTracker>,
     }
 
     // The central trait for subclassing a GObject
@@ -160,12 +230,14 @@ mod imp {
             let obj = self.obj();
             obj.setup_model_and_view();
             obj.setup_factory();
+            obj.setup_gestures();
+            obj.setup_spinner();
         }
 
-        //fn signals() -> &'static [glib::subclass::Signal] {
-        //    static SIGNALS: OnceLock<Vec<Signal>> = OnceLock::new();
-        //    SIGNALS.get_or_init(|| vec![Signal::builder("fetch-cards").build()])
-        //}
+        fn signals() -> &'static [glib::subclass::Signal] {
+            static SIGNALS: OnceLock<Vec<Signal>> = OnceLock::new();
+            SIGNALS.get_or_init(|| vec![Signal::builder("fetch-cards").build()])
+        }
     }
     // ANCHOR_END: constructed
 
